@@ -4,29 +4,24 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.mystreaming.MainViewModel
-import com.example.mystreaming.sampleMediaList
+import androidx.navigation.navArgument
+import androidx.lifecycle.viewmodel.compose.viewModel
 
+/**
+ * Navegacao principal do app.
+ *
+ * A partir do Trabalho 3 as telas nao recebem mais o objeto inteiro pela
+ * navegacao: elas recebem apenas o **id** e buscam o conteudo direto no banco
+ * Room (ver Requisitos.txt, secao 3.3).
+ */
 @Composable
 fun AppNavigation(mainViewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
-
-    // Guarda o ID do filme escolhido.
-    var filmeId by rememberSaveable {
-        mutableStateOf(sampleMediaList.first().id)
-    }
-
-    // Observa o estado reativo da "Sua lista" a partir do ViewModel
-    val minhaLista by mainViewModel.minhaLista.collectAsState()
-
-    var filmeIdSelecionado by remember { mutableStateOf(sampleMediaList.first().id) }
-    val filmeAtual = sampleMediaList.firstOrNull { it.id == filmeIdSelecionado } ?: sampleMediaList.first()
 
     Column(
         modifier = Modifier
@@ -41,75 +36,74 @@ fun AppNavigation(mainViewModel: MainViewModel = viewModel()) {
             composable(Rotas.HOME) {
                 HomeScreen(
                     navController = navController,
-                    minhaLista = minhaLista,
-                    onFilmeClick = { filme ->
-                        filmeIdSelecionado = filme.id
-                        navController.navigate(Rotas.DESCRICAO)
-                    },
+                    mainViewModel = mainViewModel,
                     onVerMinhaListaClick = {
                         navController.navigate(Rotas.MINHA_LISTA_GRID)
                     }
                 )
             }
 
-            composable(Rotas.DESCRICAO) {
+            composable(
+                route = Rotas.DESCRICAO,
+                arguments = listOf(navArgument("filmeId") { type = NavType.IntType })
+            ) { backStackEntry ->
+                val filmeId = backStackEntry.arguments?.getInt("filmeId") ?: 0
+
                 DetalhesScreen(
                     navController = navController,
-                    filme = filmeAtual,
-                    isNaMinhaLista = mainViewModel.isNaMinhaLista(filmeAtual.id),
-                    onAdicionarOuRemoverMinhaLista = { filme: MediaItem ->
-                        mainViewModel.toggleMinhaLista(filme)
-                    }
-                )
-            }
-
-            composable(Rotas.COMENTARIOS){
-                ComentariosScreen(
-                    navController = navController,
-                    filme = sampleMediaList.first{ it.id == filmeId }
+                    mainViewModel = mainViewModel,
+                    filmeId = filmeId
                 )
             }
 
             composable(
-                route = "${Rotas.COMENTARIO_DETALHES}/{reviewId}"
+                route = Rotas.AVALIACAO,
+                arguments = listOf(navArgument("filmeId") { type = NavType.IntType })
             ) { backStackEntry ->
+                val filmeId = backStackEntry.arguments?.getInt("filmeId") ?: 0
 
-                val reviewId = backStackEntry
-                    .arguments
-                    ?.getString("reviewId")
-                    ?.toIntOrNull()
-
-                val review = sampleReviews.firstOrNull {
-                    it.id == reviewId
-                }
-
-                if (review != null) {
-
-                    ComentarioDetalhesScreen(
-                        navController = navController,
-                        review = review
-                    )
-                }
+                ReviewScreen(
+                    navController = navController,
+                    mainViewModel = mainViewModel,
+                    filmeId = filmeId
+                )
             }
 
+            composable(
+                route = Rotas.COMENTARIOS,
+                arguments = listOf(navArgument("filmeId") { type = NavType.IntType })
+            ) { backStackEntry ->
+                val filmeId = backStackEntry.arguments?.getInt("filmeId") ?: 0
+
+                ComentariosScreen(
+                    navController = navController,
+                    mainViewModel = mainViewModel,
+                    filmeId = filmeId
+                )
+            }
+
+            composable(
+                route = Rotas.COMENTARIO_DETALHES,
+                arguments = listOf(navArgument("reviewId") { type = NavType.IntType })
+            ) { backStackEntry ->
+                val reviewId = backStackEntry.arguments?.getInt("reviewId") ?: 0
+
+                ComentarioDetalhesScreen(
+                    navController = navController,
+                    mainViewModel = mainViewModel,
+                    reviewId = reviewId
+                )
+            }
 
             composable(Rotas.MINHA_LISTA_GRID) {
                 MinhaListaGridScreen(
                     navController = navController,
-                    minhaLista = minhaLista,
-                    onFilmeClick = { filme ->
-                        filmeId = filme.id
-                        navController.navigate(Rotas.DESCRICAO)
-                    }
+                    mainViewModel = mainViewModel
                 )
             }
 
-            composable("perfil") {
-                ProfileScreen()
-            }
-
-            composable("avaliacao") {
-                ReviewScreen(navController = navController)
+            composable(Rotas.PERFIL) {
+                ProfileScreen(mainViewModel = mainViewModel)
             }
         }
 
@@ -126,7 +120,7 @@ fun AppNavigation(mainViewModel: MainViewModel = viewModel()) {
 
             TextButton(
                 onClick = {
-                    navController.navigate("perfil") {
+                    navController.navigate(Rotas.PERFIL) {
                         launchSingleTop = true
                     }
                 },

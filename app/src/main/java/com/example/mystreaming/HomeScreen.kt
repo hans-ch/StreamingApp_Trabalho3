@@ -1,5 +1,6 @@
 package com.example.mystreaming
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,15 +20,29 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,47 +53,68 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.example.mystreaming.sampleMediaList
+import com.example.mystreaming.data.MediaItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-
-//Item review e seus atributos
-data class Review(
-    val id: Int,
-    val filmeId: Int,
-    val usuario: String,
-    val comentario: String,
-    val nota: Int
-)
-
-private val AzulFundo = Color(0xFF172B9E)
 private val AzulTopBar = Color(0xFF091152)
-private val AzulBotao = Color(0xFF5375D6)
 
-val sampleReviews = listOf(
-    Review(1, 1, "Joséfa",
-        "As historias da cultura chinesa são muito loucas... Otimo filme",
-        5),
-    Review(2, 1, "Irineu",
-        "Quem era o vilão no final...? Vc não sabe, nem eu",
-        4),
-    Review(3, 2, "Aristides",
-        "Esse filme nem existe. Incrivel 10/10",
-        5))
-
-
+/**
+ * Tela inicial.
+ *
+ * As secoes "Recomendacoes", "Novidades" e "Sua lista" sao preenchidas com o
+ * que vem do banco Room (MainViewModel -> dao.buscarTodos / dao.buscarDaMinhaLista).
+ * O botao "+" da TopAppBar abre o formulario de adicionar filme, que grava de
+ * verdade no banco (dao.inserir).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     navController: NavHostController,
-    minhaLista: List<MediaItem> = emptyList(),
-    onFilmeClick: (MediaItem) -> Unit = {},
+    mainViewModel: MainViewModel,
     onVerMinhaListaClick: () -> Unit = {}
 ) {
+    val scope = rememberCoroutineScope()
+
+    val filmes by mainViewModel.filmes.collectAsState()
+    val minhaLista by mainViewModel.minhaLista.collectAsState()
+
+    var carregando by remember { mutableStateOf(true) }
+    var erro by remember { mutableStateOf<String?>(null) }
+
+    // Formulario de adicionar filme (dialogo, sem criar uma tela nova)
+    var mostrarFormulario by remember { mutableStateOf(false) }
+    var titulo by remember { mutableStateOf("") }
+    var ano by remember { mutableStateOf("") }
+    var nota by remember { mutableStateOf("") }
+
+    // Busca os dados do banco assim que a tela abre
+    LaunchedEffect(Unit) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                mainViewModel.carregarFilmes()
+                mainViewModel.carregarMinhaLista()
+            } catch (e: Exception) {
+                Log.e("HomeScreen", "Erro ao carregar os filmes do banco", e)
+                withContext(Dispatchers.Main) { erro = "Nao foi possivel carregar os filmes" }
+            }
+            withContext(Dispatchers.Main) { carregando = false }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Home") },
                 actions = {
+                    IconButton(onClick = { mostrarFormulario = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Adicionar filme",
+                            tint = Color.White
+                        )
+                    }
                     Image(
                         painter = painterResource(id = R.drawable.ic_logo_negativo),
                         contentDescription = "Logo Vihanny",
@@ -98,6 +134,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF1E2A78))
+                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp)
         ) {
@@ -118,26 +155,108 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            if (erro != null) {
+                Text(
+                    text = erro!!,
+                    fontSize = 12.sp,
+                    color = Color.LightGray,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (carregando && filmes.isEmpty()) {
+                Text(
+                    text = "Carregando do banco...",
+                    fontSize = 12.sp,
+                    color = Color.LightGray,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
             MediaSection(
                 title = "Recomendações",
-                items = sampleMediaList,
-                onFilmeClick = onFilmeClick
+                items = filmes,
+                onFilmeClick = { filme -> navController.navigate(Rotas.descricao(filme.id)) }
             )
 
             MediaSection(
                 title = "Novidades",
-                items = sampleMediaList,
-                onFilmeClick = onFilmeClick
+                items = filmes,
+                onFilmeClick = { filme -> navController.navigate(Rotas.descricao(filme.id)) }
             )
 
             MediaSection(
                 title = "Sua lista",
                 items = minhaLista,
-                onFilmeClick = onFilmeClick,
+                onFilmeClick = { filme -> navController.navigate(Rotas.descricao(filme.id)) },
                 onTitleClick = onVerMinhaListaClick,
                 isClicavel = true
             )
         }
+    }
+
+    // ------------------------------------------------------------------ Formulario
+
+    if (mostrarFormulario) {
+        AlertDialog(
+            onDismissRequest = { mostrarFormulario = false },
+            title = { Text("Adicionar filme") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = titulo,
+                        onValueChange = { titulo = it },
+                        label = { Text("Titulo") },
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = ano,
+                        onValueChange = { ano = it },
+                        label = { Text("Ano") },
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = nota,
+                        onValueChange = { nota = it },
+                        label = { Text("Nota") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (titulo.isBlank()) return@TextButton
+
+                        val novo = MediaItem(
+                            title = titulo.trim(),
+                            year = ano.trim().ifBlank { "—" },
+                            rating = nota.trim().ifBlank { "—" },
+                            naMinhaLista = true
+                        )
+
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                mainViewModel.inserirFilme(novo)
+                            } catch (e: Exception) {
+                                Log.e("HomeScreen", "Erro ao salvar o filme no banco", e)
+                            }
+                        }
+
+                        titulo = ""
+                        ano = ""
+                        nota = ""
+                        mostrarFormulario = false
+                    }
+                ) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarFormulario = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 
@@ -238,6 +357,6 @@ fun MediaCard(item: MediaItem, onClick: () -> Unit = {}) {
 @Composable
 fun TelaHomePreview(){
     MaterialTheme{
-        HomeScreen(navController = rememberNavController())
+        HomeScreen(navController = rememberNavController(), mainViewModel = MainViewModel(previewApplication()))
     }
 }
