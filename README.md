@@ -16,9 +16,6 @@
 6. [O CRUD completo, tela por tela](#-o-crud-completo-tela-por-tela)
 7. [A dificuldade de migrar de `mutableStateListOf` para Room](#-a-dificuldade-de-migrar-de-mutablestatelistof-para-room)
 8. [Prova de persistência (teste de aceitação)](#-prova-de-persistência-teste-de-aceitação)
-9. [Dificuldades de cada integrante](#-dificuldades-de-cada-integrante)
-10. [Checklist de entrega](#-checklist-de-entrega)
-11. [Histórico das entregas anteriores](#-histórico-das-entregas-anteriores)
 
 ---
 
@@ -398,67 +395,6 @@ O roteiro da apresentação ao vivo:
 **Prints do resultado (após reabrir o app):** o filme continua na "Sua lista" (`docs/01`), a tela de
 Detalhes mostra o título editado e o comentário salvo (`docs/03`), e a tela de Comentários mostra a
 avaliação vinda do banco (`docs/05`).
-
-> 🎥 **Vídeo:** gravar um vídeo curto (1–2 min) mostrando exatamente esse roteiro — especialmente o
-> `force-stop` e a reabertura. É esse vídeo que prova a persistência na apresentação.
-
----
-
-## 👥 Dificuldades de cada integrante
-
-> *Espaço para o trio preencher com as histórias reais de cada um — este é o item que só o grupo
-> consegue responder com as palavras de vocês.*
-
-- **Integrante 1:** *(preencher)*
-- **Integrante 2:** *(preencher)*
-- **Integrante 3:** *(preencher)*
-
----
-
-## 📋 Checklist de entrega
-
-- [x] Dependências do Room configuradas (KSP sincronizado **antes** do `ksp(...)`) e o projeto compila sem erro
-- [x] 2 `@Entity` (`filmes`, `reviews`) com `@PrimaryKey(autoGenerate = true)`
-- [x] 2 interfaces `@Dao` com `@Insert`, `@Query`, `@Update` e `@Delete` — todos `suspend fun`
-- [x] Consultas filtradas por campo (`buscarPorId` nos dois DAOs, `buscarPorFilme` e `buscarDaMinhaLista`)
-- [x] `AppDatabase` em padrão Singleton (`companion object` + `@Volatile` + `synchronized`)
-- [x] As listas buscam os dados do banco ao abrir a tela (`LaunchedEffect(Unit)`)
-- [x] Adicionar item pela UI salva de verdade no banco
-- [x] Editar item pela UI funciona de verdade e persiste
-- [x] Remover item pela UI apaga de verdade do banco
-- [x] Tela de Detalhes busca o item **direto do banco pelo id** (§3.3)
-- [x] Toda operação de banco dentro de `CoroutineScope(Dispatchers.IO).launch { }`
-- [x] Tratamento de erro com `try/catch` + `Log.e(...)`
-- [x] Teste de aceitação: adicionar → fechar o app → reabrir → o item continua lá
-- [ ] Gravar o vídeo do teste de persistência e anexar ao README
-- [ ] Preencher a seção "Dificuldades de cada integrante"
-- [ ] Criar o **novo repositório** no GitHub e publicar este código + o README
-
----
-
-## 📚 Histórico das entregas anteriores
-
-<details>
-<summary><b>Trabalho 2 — telas, navegação e estado reativo (clique para abrir)</b></summary>
-
-No **Trabalho 1** tínhamos 3 telas estáticas (`HomeScreen`, `DetalhesFilme`, `Review`), navegação "de
-mentirinha" e dados fixos. No **Trabalho 2** refatoramos para:
-
-- **4 telas novas**: Lista de Comentários, Comentário Detalhado, Perfil e Minha Lista (grid).
-- **Navegação global** com `NavHost`, `TopBar` e `BottomBar` persistentes.
-- **`MainViewModel` compartilhado** entre as telas, com `StateFlow`/`mutableStateOf`.
-- **Padronização visual** de cards, botões, cores e tipografia.
-
-> 🖼️ Lista de Comentários
-> <img width="420" alt="Captura de tela 10-08" src="https://github.com/user-attachments/assets/42678a19-f675-4514-a074-747f609c1ad2" />
-> 🖼️ Comentário Detalhado
-> <img width="420" alt="Captura de tela 2026-10-08 204630" src="https://github.com/user-attachments/assets/75b4e29b-e5e0-459b-9128-f34535c9ffe6" />
-> 🖼️ Perfil
-> <img width="420" alt="image" src="https://github.com/user-attachments/assets/daafd006-0cb6-4def-b898-8e52e8f7a861" />
-> 🖼️ Minha Lista
-> <img width="420" alt="image" src="https://github.com/user-attachments/assets/05d0c599-6f47-41f8-876f-3aa7be44e2df" />
-
-</details>
 
 ---
 
