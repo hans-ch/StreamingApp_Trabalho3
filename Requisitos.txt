@@ -1,0 +1,118 @@
+1. Visão geral
+O Trabalho 1 pediu o app existir: 3 telas estilizadas, com navegação "de mentirinha" e dados fixos. O
+Trabalho 2 — o MAF — pediu o app funcionar de verdade: navegação real com NavHost, e listas que
+aceitavam adicionar e remover itens, mas tudo guardado só na memória (mutableStateListOf). Se o
+app fechasse, os dados somem.
+O Trabalho 3 resolve exatamente esse problema: agora os dados precisam sobreviver ao fechar o app,
+usando o Room — a biblioteca oficial do Android Jetpack que funciona como uma camada sobre o SQLite,
+permitindo trabalhar com classes Kotlin em vez de escrever SQL manualmente, com verificação das
+consultas em tempo de compilação.
+Este trabalho não pede telas novas nem funcionalidades novas na interface — pede que o que já existe (as
+listas, o adicionar, o remover, o editar) passe a usar o banco de dados de verdade por baixo. O CRUD
+completo com Room foi visto e corrigido em aula com um exemplo pronto (Filmes); aqui a tarefa é um
+pouco mais difícil porque não é para copiar aquele exemplo, e sim aplicar o mesmo padrão em cima do
+próprio projeto de vocês — com as entidades, telas e fluxo de navegação que já existem desde o Trabalho
+1/2.
+3. Requisitos técnicos
+3.1 Estrutura mínima do Room
+• Dependências do Room adicionadas ao projeto (room-runtime, room-ktx, e o KSP room-
+compiler), seguindo o passo a passo visto em aula — atenção à ordem: sincronizar o
+id("com.google.devtools.ksp") antes de adicionar a linha do ksp("androidx.room:room-
+compiler:$room_version").
+• No mínimo 2 @Entity diferentes — podem (e devem) reaproveitar as 2 data classes do Trabalho 2,
+adaptando cada uma para @Entity(tableName = "...") com um val id: Int = 0 anotado
+@PrimaryKey(autoGenerate = true).
+• No mínimo 2 interfaces @Dao (uma por Entity), cada uma com os 4 métodos básicos, todos suspend
+fun: @Insert, @Query (buscar todos), @Update e @Delete.
+• Pelo menos um DAO precisa de uma consulta adicional filtrando por campo, como buscar por id (ver
+seção 3.3). O formato é parecido com o buscarTodos() que já conhecem, só muda a cláusula SQL,
+por exemplo: @Query("SELECT * FROM filmes WHERE id = :id") suspend fun
+buscarPorId(id: Int): Filmes.
+• Uma classe AppDatabase (abstract class : RoomDatabase()) reunindo as entidades em
+@Database(entities = [...], version = 1) e expondo os DAOs, seguindo o padrão
+Singleton visto em aula (companion object + @Volatile + synchronized).
+• Toda chamada às funções suspend do DAO feita dentro de um
+CoroutineScope(Dispatchers.IO).launch { ... } — nunca direto na thread principal,
+para a interface não travar.
+3.2 CRUD completo e persistente (a diferença chave em relação ao Trabalho 2)
+No Trabalho 2, a lista vivia inteira em memória: adicionar e remover funcionavam, mas um
+mutableStateListOf perde tudo quando a Activity é destruída. Agora a mesma lista, formulário e
+botões de adicionar/remover que já existem precisam passar a ler e escrever de verdade no banco Room:
+• Buscar: ao entrar em cada tela de lista, buscar os itens do banco (um LaunchedEffect(Unit)
+chamando uma função suspend que usa dao.buscarTodos()) em vez de usar a lista fixa em
+memória.
+• Inserir: o formulário de adicionar item (já existente do Trabalho 2) passa a salvar de verdade no
+banco, chamando dao.inserir(...) dentro de uma Coroutine no Dispatchers.IO, e a lista da
+tela precisa refletir o novo item.
+• Atualizar: implementar de verdade a edição de um item já existente, usando dao.atualizar(...)
+— o mesmo padrão corrigido em aula no exemplo de Filmes, agora aplicado ao próprio projeto do
+trio.
+• Remover: a remoção de item (já existente do Trabalho 2, antes só em memória) passa a chamar
+dao.deletar(...) de verdade, removendo a linha do banco.
+• Teste de aceitação: adicionar um item, fechar o app completamente e abrir de novo — o item precisa
+continuar lá. Isso é o que prova que a persistência está funcionando, e é o que será testado na
+apresentação.
+3.3 Tela de Detalhes lendo do banco
+Esta parte vai um pouco além do que foi mostrado em sala, de propósito — é a parte que torna o Trabalho
+3 mais difícil que o exemplo corrigido em aula, e também é obrigatória.
+• Pelo menos uma das telas de Detalhes (já existente do Trabalho 2) passa a buscar o item certo
+diretamente do banco a partir do id recebido pela navegação (usando a consulta filtrada da seção
+3.1), em vez de receber o objeto inteiro já pronto.
+3.4 Componentes recomendados (reforçando o que já foi visto)
+Tudo que já era obrigatório nos Trabalhos 1 e 2 continua valendo (Navigation, LazyColumn + Card,
+TopAppBar, BottomNavigation, formulários). Além disso, esperamos ver bem aplicado:
+• @Entity, @PrimaryKey(autoGenerate = true)
+• @Dao, @Insert, @Query("SELECT * FROM ..."), @Update, @Delete — todos como suspend
+fun
+• @Database, abstract class ... : RoomDatabase(), Room.databaseBuilder(...),
+padrão Singleton (companion object + @Volatile)
+• CoroutineScope(Dispatchers.IO).launch { ... } para toda operação de banco
+• LaunchedEffect(Unit) para buscar os dados assim que a tela abre
+• Tratamento de erro (try/catch) nas operações de banco, como no exemplo de aula com
+Log.e(...)
+4. Documentação do processo e das decisões
+Não basta um README mínimo de "como rodar o projeto", e não basta só texto escrito — o foco principal
+aqui é mostrar o app funcionando de verdade: prints de tela e, principalmente, vídeos curtos mostrando
+cada etapa do processo, especialmente o teste de fechar e reabrir o app com os dados persistidos. Texto
+sem nada do app funcionando não vale. No próprio repositório, num arquivo README.md (SIM PODE
+CONTINUAR SENDO EM UM GOOGLE SLIDES, com o link no README), contém a história das decisões do
+trio, do mesmo jeito que foi pedido nos trabalhos anteriores. Respondam, com suas palavras, e ilustrem
+com prints/vídeo:
+• Como estava o projeto no Trabalho 2, e o que mudou para chegar até aqui?
+• Quais Entity, DAO e Database foram criados — e por que escolheram esses campos para cada Entity?
+• Como decidiram estruturar as queries do DAO (quais métodos além dos 4 básicos, se houver)?
+• Qual foi a dificuldade em migrar de mutableStateListOf para Room? O que quebrou no caminho
+e como resolveram?
+• Print ou vídeo mostrando o teste de persistência: adicionar um item, fechar o app, reabrir, e o item
+continuar lá.
+• Algum integrante do trio teve dificuldade em algum ponto? Como resolveram?
+5. O que ainda não entra
+O banco de dados é local, salvo no próprio aparelho via SQLite/Room — não precisa (e não deve) envolver
+login de usuário, servidor remoto, API ou sincronização na nuvem. Isso fica para depois, se houver.
+Também não é cobrado aqui um padrão de código mais rígido como separação em camadas, arquitetura,
+etc. Neste trabalho o importante é o Room funcionando de verdade com base no que já existe.
+6. Como entregar
+• Criar um NOVO repositório no GitHub, evoluindo o código do Trabalho 2 (não precisa recomeçar o
+projeto do zero — copiem o código existente para o novo repositório e continuem a partir dele).
+• O repositório precisa conter tudo que é necessário para rodar o projeto, mais o arquivo de
+documentação da seção 4.
+• Sem commits após o prazo combinado em sala (data de entrega definida no Blackboard da turma).
+• Apresentação rápida em sala mostrando o app funcionando ao vivo: adicionar um item, editar um
+item, remover um item, e então fechar e reabrir o app mostrando que os dados continuam lá.
+7. Checklist rápido antes de entregar
+• [ ] Novo repositório GitHub criado, com README explicando como rodar o projeto
+• [ ] Documentação do processo e das decisões está no repositório, com prints/vídeo (seção 4)
+• [ ] Dependências do Room configuradas e o projeto compila sem erro
+• [ ] Existem no mínimo 2 @Entity, cada uma com @PrimaryKey(autoGenerate = true)
+• [ ] Existem no mínimo 2 interfaces @Dao, cada uma com @Insert, @Query, @Update e @Delete
+(todos suspend)
+• [ ] Pelo menos um DAO tem uma consulta filtrada por campo (ex.: buscarPorId(id: Int)), além
+do buscarTodos()
+• [ ] Uma tela de Detalhes busca o item direto do banco pelo id (seção 3.3)
+• [ ] Existe uma classe AppDatabase em padrão Singleton
+• [ ] As listas buscam os dados do banco ao abrir a tela (não mais de uma lista fixa em memória)
+• [ ] Adicionar um item pela UI salva de verdade no banco
+• [ ] Editar (atualizar) um item pela UI funciona de verdade e persiste
+• [ ] Remover um item pela UI apaga de verdade do banco
+• [ ] Testei: adicionar um item, fechar o app, reabrir — o item continua lá
+• [ ] Toda operação de banco está dentro de uma Coroutine no Dispatchers.IO
