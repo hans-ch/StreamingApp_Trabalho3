@@ -1,21 +1,26 @@
-﻿# 📱 myStreaming — Documentação do Projeto Mobile (Terceira Entrega)
+# 📱 myStreaming — Documentação do Projeto Mobile (Quarta Entrega)
 
-> **Trabalho 3 — Persistência de dados com Room.**
-> Esta documentação registra a evolução do aplicativo e, principalmente, as decisões do trio
-> para trocar a persistência em memória pelo **Room** (a camada oficial do Android sobre o SQLite).
+> **Trabalho 4 — Refatoração para MVVM (Model — View — ViewModel).**
+> O Trabalho 3 resolveu a **persistência** (Room). Este trabalho resolve a **organização**:
+> as mesmas telas, os mesmos dados, as mesmas funcionalidades — agora em camadas bem definidas.
 
 ---
 
 ## 📖 Índice
 
 1. [Como rodar o projeto](#-como-rodar-o-projeto)
-2. [Do Trabalho 1 ao Trabalho 3: o que mudou](#-do-trabalho-1-ao-trabalho-3-o-que-mudou)
-3. [A camada de dados: Entity, DAO e Database](#-a-camada-de-dados-entity-dao-e-database)
-4. [Como estruturamos as queries do DAO](#-como-estruturamos-as-queries-do-dao)
-5. [Como o app conversa com o banco](#-como-o-app-conversa-com-o-banco)
-6. [O CRUD completo, tela por tela](#-o-crud-completo-tela-por-tela)
-7. [A dificuldade de migrar de `mutableStateListOf` para Room](#-a-dificuldade-de-migrar-de-mutablestatelistof-para-room)
-8. [Prova de persistência (teste de aceitação)](#-prova-de-persistência-teste-de-aceitação)
+2. [O que é este trabalho (em 1 minuto)](#-o-que-é-este-trabalho-em-1-minuto)
+3. [Como estava no Trabalho 3 e o que mudou](#-como-estava-no-trabalho-3-e-o-que-mudou)
+4. [Como dividimos os pacotes](#-como-dividimos-os-pacotes)
+5. [Por que o Repository existe](#-por que-o-repository-existe)
+6. [O DAO reativo com Flow](#-o-dao-reativo-com-flow)
+7. [O UiState de cada tela](#-o-uistate-de-cada-tela)
+8. [ViewModelFactory: como o Repository chega no ViewModel](#-viewmodelfactory-como-o-repository-chega-no-viewmodel)
+9. [O que quebrou durante a reorganização](#-o-que-quebrou-durante-a-reorganização)
+10. [Prova de que nada quebrou (testes)](#-prova-de-que-nada-quebrou-testes)
+11. [Dificuldades de cada integrante](#-dificuldades-de-cada-integrante)
+12. [Checklist de entrega](#-checklist-de-entrega)
+13. [Histórico das entregas anteriores](#-histórico-das-entregas-anteriores)
 
 ---
 
@@ -39,367 +44,611 @@ adb shell am start -n com.example.mystreaming/.MainActivity
 Ou, simplesmente, abra a pasta no **Android Studio**, clique em *Sync Now* e depois em **Run ▶**.
 
 > ⚠️ O banco `mystreaming.db` fica no armazenamento interno do app. Para começar do zero:
-> `adb shell pm clear com.example.mystreaming` (isso **apaga** o banco).
-> Para provar a persistência, use `adb shell am force-stop com.example.mystreaming` — que apenas fecha o app.
+> `adb shell pm clear com.example.mystreaming`. Para provar a persistência, use
+> `adb shell am force-stop com.example.mystreaming` — que apenas fecha o app.
 
 ---
 
-## 📈 Do Trabalho 1 ao Trabalho 3: o que mudou
+## 🎯 O que é este trabalho (em 1 minuto)
 
-| | **Trabalho 1** | **Trabalho 2** | **Trabalho 3 (agora)** |
-|---|---|---|---|
-| Navegação | "de mentirinha", sem `NavHost` | `NavHost` real, rotas e `BottomBar` | `NavHost` real **passando apenas o `id`** do item |
-| Dados | listas fixas no código | `mutableStateListOf` / `MutableStateFlow` em memória | **Room (SQLite)** com DAO e Entities |
-| Sobrevive ao fechar o app? | ❌ | ❌ | ✅ |
-| Adicionar / Editar / Remover | ❌ | ✅ só em memória | ✅ **no banco de verdade** |
-| Tela de Detalhes | recebe o objeto pronto | recebe o objeto pronto | **busca o objeto no banco pelo `id`** |
+No Trabalho 3 o app **funcionava**, mas o código era " bagunçado de propósito":
 
-**O que o Trabalho 2 deixou pra trás:** a "Sua Lista" vivia em um `MutableStateFlow` dentro do `MainViewModel`.
-Funcionava enquanto o app estava aberto, mas um `MutableStateFlow` **não sobrevive ao destruction da Activity**:
-fechava o app e tudo sumia. Pior, a tela de Detalhes recebia o objeto `MediaItem` **inteiro** pela navegação,
-o que impedia a tela de buscar o dado fresco no banco.
+- o `@Composable` **falava direto com o `@Dao`**;
+- cada tela criava a **própria `CoroutineScope`** e usava `Dispatchers.IO` dentro do componente;
+- o estado de cada tela vivia espalhado em várias `var ... by remember`;
+- um `MainViewModel` gigante (133 linhas) concentrava as três listas e todos os métodos;
+- depois de cada `inserir`/`deletar`, era preciso **buscar os dados de novo na mão** — a lista podia
+  ficar dessincronizada.
 
-**O que fizemos neste trabalho:**
+> *"Funciona, mas cresce mal: quanto mais telas e regras o projeto ganha, mais difícil fica mexer em
+> uma parte sem quebrar outra."* — enunciado do Trabalho 4
 
-1. Criamos a camada de dados `data/` com **2 Entities, 2 DAOs e o `AppDatabase`** (Room).
-2. O `MainViewModel` virou `AndroidViewModel`: ele deixou de *guardar* os dados e passou a **refletir o banco**.
-3. Todas as telas passaram a **buscar no banco ao abrir** (`LaunchedEffect(Unit)` + `Dispatchers.IO`).
-4. A navegação passou a carregar **só o `id`** — a Tela de Detalhes agora busca o filme no banco pelo id.
-5. Adicionar, editar e remover passaram a gravar de verdade no SQLite.
+**Este trabalho não cria nada.** Ele reorganiza o que já existe em quatro camadas:
 
-> 💡 O `StateFlow` **continua existindo** no `MainViewModel` — mas ele deixou de ser a fonte da verdade
-> e virou apenas o "espelho" do banco. Isso manteve o padrão reativo do Trabalho 2 (a UI continua
-> atualizando sozinha) sem nenhum estado duplicado.
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ui  (View)                                                   │
+│  screens/  components/  navigation/                          │
+│  • só lê o uiState e chama métodos do ViewModel               │
+│  • ZERO dao, ZERO CoroutineScope, ZERO Dispatchers.IO        │
+└───────────────┬──────────────────────────────┬───────────────┘
+                │ StateFlow<UiState>           │ chamadas de ação
+                ▼                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  viewmodel                                                    │
+│  FilmesViewModel + FilmesUiState                             │
+│  ReviewsViewModel + ReviewsUiState                           │
+│  FilmesViewModelFactory / ReviewsViewModelFactory             │
+└───────────────┬──────────────────────────────┬───────────────┘
+                │ só o ViewModel fala com o Repository
+                ▼                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  data.repository                                              │
+│  FilmesRepository (FilmesDao)  ReviewsRepository (ReviewsDao) │
+│  SeedRepository (popula o banco)  RepositoryProvider (ServiceLocator) │
+└───────────────┬──────────────────────────────┬───────────────┘
+                ▼                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  data.local  (Model — Room)                                   │
+│  MediaItem.kt  Review.kt  (Entities)                         │
+│  FilmesDao.kt ReviewsDao.kt  (DAOs — buscarTodos = Flow)     │
+│  AppDatabase.kt (Singleton)  DadosDeExemplo.kt (seed)         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**A regra de ouro:** a seta só aponta para baixo. Nenhum arquivo de `ui` importa `androidx.room3.*`,
+`data.local.*` nem `Dispatchers`.
 
 ---
 
-## 🗄️ A camada de dados: Entity, DAO e Database
+## 🔄 Como estava no Trabalho 3 e o que mudou
 
-Todos os arquivos novos ficaram no pacote `com.example.mystreaming.data`:
+| | **Trabalho 3** | **Trabalho 4 (agora)** |
+|---|---|---|
+| Quem fala com o `@Dao` | o `MainViewModel` (e a tela puxava o estado dele) | **só o `Repository`** |
+| Telas | `@Composable` com `rememberCoroutineScope()` + `launch(Dispatchers.IO)` | `@Composable` que **só lê `uiState` e chama o ViewModel** |
+| Estado da tela | 3 a 6 `var ... by remember` por tela | **um `UiState` por ViewModel** (lista, item em foco, carregando, erro, formulário, diálogos) |
+| ViewModels | 1 `MainViewModel` gigante, com `StateFlow` por lista | **2 ViewModels**, cada um com `_uiState` privado + `uiState` público |
+| Como a tela recebia o ViewModel | `viewModel()` (sem injeção) | `viewModel(factory = FilmesViewModelFactory(repository))` |
+| Listas depois de uma escrita | `carregarFilmes()` chamado "na mão" | **o Room reemite o `Flow` e a tela atualiza sozinha** |
+| Dependências do DAO | dentro do ViewModel | isoladas no `Repository` (trocar a fonte de dados não afeta mais nada) |
+| Onde o DAO vivia | `com.example.mystreaming.data` | `com.example.mystreaming.data.local` |
 
-```
-app/src/main/java/com/example/mystreaming/data/
-├── MediaItem.kt        @Entity(tableName = "filmes")
-├── Review.kt           @Entity(tableName = "reviews")
-├── FilmesDao.kt        @Dao  (filmes)
-├── ReviewsDao.kt       @Dao  (reviews)
-├── AppDatabase.kt      @Database(entities = [...], version = 1)  — Singleton
-└── DadosDeExemplo.kt   seed dos dados de exemplo (inseridos pelos próprios DAOs)
-```
+### Antes × depois, no mesmo lugar do código
 
-### 🎬 Entity 1 — `MediaItem` (tabela `filmes`)
-
-```kotlin
-@Entity(tableName = "filmes")
-data class MediaItem(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val title: String,
-    val year: String,
-    val rating: String,
-    val naMinhaLista: Boolean = false
-)
-```
-
-**Por que estes campos?**
-
-- `id` — `Int` com `@PrimaryKey(autoGenerate = true)` e default `0`, como pede o enunciado. O `0` faz o
-  SQLite gerar o id automaticamente (1, 2, 3, 4...). É a diferença mais importante em relação ao
-  Trabalho 2, em que o id era escrito à mão (`MediaItem(1, "Jornada pro Oeste", ...)`).
-- `title`, `year`, `rating` — **os mesmos campos da data class do Trabalho 2**. Reaproveitamos a classe
-  em vez de inventar outra, para não precisar mexer em nada na interface. O `rating` continua `String`
-  para não quebrar o `"★ ${item.rating}"` que já existia na `HomeScreen`.
-- `naMinhaLista` — **a única coluna nova**. É a solução que escolhemos para a "Sua Lista": em vez de criar
-  uma terceira tabela de junção (`filmes` + `minha_lista`), guardamos uma flag na própria tabela.
-  A lista do usuário passa a ser uma **consulta filtrada** (`WHERE naMinhaLista = 1`).
-  *Trade-off:* o "Meu Filme" aparece também nas seções "Recomendações"/"Novidades" (ele existe no catálogo).
-  Em troca, o modelo continua simples e a listagem fica em uma query só.
-
-### 💬 Entity 2 — `Review` (tabela `reviews`)
+**Antes (Trabalho 3) — a tela fazia tudo:**
 
 ```kotlin
-@Entity(
-    tableName = "reviews",
-    foreignKeys = [
-        ForeignKey(
-            entity = MediaItem::class,
-            parentColumns = ["id"],
-            childColumns = ["filmeId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [Index("filmeId")]
-)
-data class Review(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val filmeId: Int,
-    val usuario: String,
-    val comentario: String,
-    val nota: Int
-)
-```
+@Composable
+fun HomeScreen(mainViewModel: MainViewModel) {
+    val scope = rememberCoroutineScope()
+    var titulo by remember { mutableStateOf("") }
+    var mostrarFormulario by remember { mutableStateOf(false) }
 
-**Por que estes campos?**
-
-- Reaproveita a `data class Review` que **vivia dentro da `HomeScreen.kt`** no Trabalho 2 — agora ela é uma
-  Entity de verdade, com os mesmos campos que a UI já usava.
-- `filmeId` — **chave estrangeira** para `filmes.id`. Apagar um filme apaga as avaliações dele (`CASCADE`),
-  evitando avaliação órfã apontando para um id que não existe mais. O `Index("filmeId")` deixa a consulta
-  "comentários de um filme" rápida.
-- `nota: Int` — continua 1..5 (as estrelas da tela "Avaliar").
-- `usuario: String` — antes era um nome fixo na tela; agora cada avaliação **guarda o autor** no momento
-  em que foi criada.
-
-### 🗄️ `AppDatabase` — Singleton
-
-```kotlin
-@Database(entities = [MediaItem::class, Review::class], version = 1, exportSchema = false)
-abstract class AppDatabase : RoomDatabase() {
-
-    abstract fun filmesDao(): FilmesDao
-    abstract fun reviewsDao(): ReviewsDao
-
-    companion object {
-        @Volatile
-        private var INSTANCE: AppDatabase? = null
-
-        fun getInstance(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "mystreaming.db"
-                ).build().also { INSTANCE = it }
+    LaunchedEffect(Unit) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                mainViewModel.carregarFilmes()
+            } catch (e: Exception) {
+                Log.e("HomeScreen", "Erro ao carregar os filmes do banco", e)
             }
         }
     }
+
+    Button(onClick = {
+        scope.launch(Dispatchers.IO) {
+            try {
+                mainViewModel.inserirFilme(MediaItem(title = titulo, ...))
+            } catch (e: Exception) {
+                Log.e("HomeScreen", "Erro ao salvar o filme", e)
+            }
+        }
+    }) { Text("Salvar") }
 }
 ```
 
-O padrão **Singleton** (`companion object` + `@Volatile` + `synchronized`) garante uma única instância do
-banco em todo o app — abrir o banco duas vezes causa problema de lock no SQLite.
-
-### ⚙️ Uma nota sobre a versão do Room
-
-O enunciado cita `room-runtime`, `room-ktx` e `ksp("androidx.room:room-compiler:...")`.
-Usamos a **versão atual** do Room, que passou a se chamar **Room 3**:
+**Depois (Trabalho 4) — a tela só desenha e delega:**
 
 ```kotlin
-// app/build.gradle.kts
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.compose.compiler)
-    id("com.google.devtools.ksp")                     // sincronizado ANTES do ksp(...)
-}
+@Composable
+fun HomeScreen(viewModel: FilmesViewModel) {
+    // 1. COLETAR o que desenhar
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-dependencies {
-    val room_version = "3.0.3"
-    implementation("androidx.room3:room3-runtime:$room_version")
-    ksp("androidx.room3:room3-compiler:$room_version")
+    // 2. CHAMAR o ViewModel quando o usuário interage
+    Button(onClick = { viewModel.adicionarFilme() }) { Text("Salvar") }
 }
 ```
 
-No Room 3 o artefato `room3-ktx` **não existe mais**: o conteúdo do `-ktx` foi incorporado no
-`room3-runtime` (é ele que traz as extensões de corrotina) e o Room passou a ser multi-plataforma.
-A **API é a mesma** do Room 2 — só muda o pacote dos imports (`androidx.room3.*` em vez de `androidx.room.*`).
-Tudo aqui (`@Entity`, `@PrimaryKey(autoGenerate = true)`, `@Dao`, `@Insert`, `@Query`, `@Update`, `@Delete`,
-`@Database`, `Room.databaseBuilder(...).build()`) continua exatamente igual ao exemplo corrigido em aula.
+> ✂️ O que **sumiu** de todas as telas: `rememberCoroutineScope()`, `launch(Dispatchers.IO)`,
+> `try/catch` com `Log.e`, as chamadas `carregarX()` e todas as `var ... by remember` de estado de tela.
 
 ---
 
-## 🔍 Como estruturamos as queries do DAO
+## 📦 Como dividimos os pacotes
 
-Os dois DAOs têm **os 4 métodos básicos**, todos `suspend fun` (para poderem ser chamados dentro de uma
-corrotina sem travar a thread principal):
+```
+app/src/main/java/com/example/mystreaming/
+├── MainActivity.kt                    ← ponto de entrada do Android (fica na raiz de propósito)
+├── data/
+│   ├── local/                         ← MODEL: o Room (Entity, DAO, Database, seed)
+│   │   ├── MediaItem.kt      Review.kt
+│   │   ├── FilmesDao.kt      ReviewsDao.kt
+│   │   └── AppDatabase.kt    DadosDeExemplo.kt
+│   └── repository/                    ← o Repository: a única porta de entrada para o banco
+│       ├── FilmesRepository.kt
+│       ├── ReviewsRepository.kt
+│       ├── SeedRepository.kt
+│       └── RepositoryProvider.kt      (ServiceLocator: entrega as instâncias)
+├── viewmodel/                         ← VIEWMODEL: estado da tela + regras
+│   ├── FilmesUiState.kt      FilmesViewModel.kt
+│   ├── ReviewsUiState.kt     ReviewsViewModel.kt
+│   └── ViewModelFactory.kt
+└── ui/                                ← VIEW: só interface
+    ├── AppScreen.kt
+    ├── components/                    (MediaCard, ReviewCard, CardComentarioItem)
+    ├── navigation/                    (AppNavigation, Rotas)
+    └── screens/                       (Home, Detalhes, MinhaLista, Avaliacao, Comentarios, ComentarioDetalhe, Perfil)
+```
 
-| Método | `FilmesDao` | `ReviewsDao` |
+**Por que cada coisa foi para onde foi**
+
+- **`data.local`** — as `@Entity`, os `@Dao` e o `@Database` **exatamente como já existiam** do Trabalho 3.
+  Não mudamos nada aqui dentro (só o `package`), porque essa parte já estava certa: ela é a fonte da
+  verdade, e falar com SQLite não é responsabilidade de mais ninguém.
+- **`data.repository`** — aqui fica o **Repository**: a única classe autorizada a falar com o `@Dao`.
+  Ele traduz "o que a tela quer" em "o que o banco sabe fazer" e é o **único** lugar que precisaria mudar
+  se a fonte de dados mudasse.
+- **`viewmodel`** — quem guarda o **estado da tela** e quem decide **o que fazer** quando o usuário age.
+  Não sabe de SQLite: só conhece o Repository.
+- **`ui`** — quem **desenha**. Não tem regra de negócio e não tem `CoroutineScope`. É a camada mais burra
+  do projeto, e isso é de propósito: é a que menos vai mudar.
+- **`ui/components`** — as peças de interface reaproveitadas (`MediaCard`, `ReviewCard`,
+  `CardComentarioItem`). Antes estavam "espremidas" dentro dos arquivos das telas; agora são
+  componentes puros, sem saber de ViewModel nem de banco.
+
+> ⚠️ **Uma decisão de risco que TOMAMOS:** o `MainActivity` ficou no pacote raiz (`com.example.mystreaming`)
+> em vez de ir para `ui/`. Movê-lo mudaria o FQCN da Activity e exigiria editar o `AndroidManifest.xml`
+> (`android:name=".MainActivity"` → `".ui.MainActivity"`) — e um erro ali só apareceria **em runtime**, com
+> o app fechando na hora de abrir. Como o enunciado não pede isso, preferimos não arriscar.
+
+### Onde cada tela ficou connected a qual ViewModel
+
+| Tela | ViewModel(s) | Por quê |
 |---|---|---|
-| `@Insert` | `inserir(filme): Long` | `inserir(review): Long` |
-| `@Query` | `buscarTodos(): List<MediaItem>` | `buscarTodos(): List<Review>` |
-| `@Update` | `atualizar(filme)` | `atualizar(review)` |
-| `@Delete` | `deletar(filme)` | `deletar(review)` |
+| **Home** | `FilmesViewModel` | lista de filmes + "Sua lista" + formulário de adicionar |
+| **Minha Lista** | `FilmesViewModel` | é a "Sua lista" (mesmo repositório, mesmo estado) |
+| **Detalhes** | `FilmesViewModel` + `ReviewsViewModel` | precisa do filme **e** dos comentários dele |
+| **Avaliar** | `ReviewsViewModel` | formulário de avaliação + título do filme |
+| **Comentários** | `ReviewsViewModel` | comentários do filme + título |
+| **Comentário (detalhe)** | `ReviewsViewModel` | um comentário, buscado pelo id |
+| **Perfil** | `FilmesViewModel` | só a estatística da "Sua lista" |
 
-E as **consultas filtradas** que o enunciado pede (além do `buscarTodos()`):
-
-```kotlin
-// FilmesDao
-@Query("SELECT * FROM filmes WHERE id = :id")            suspend fun buscarPorId(id: Int): MediaItem?
-@Query("SELECT * FROM filmes WHERE naMinhaLista = 1 ORDER BY id") suspend fun buscarDaMinhaLista(): List<MediaItem>
-
-// ReviewsDao
-@Query("SELECT * FROM reviews WHERE id = :id")           suspend fun buscarPorId(id: Int): Review?
-@Query("SELECT * FROM reviews WHERE filmeId = :filmeId ORDER BY id") suspend fun buscarPorFilme(filmeId: Int): List<Review>
-```
-
-**Decisões que tomamos:**
-
-- **`ORDER BY id` em todas as leituras.** O SQLite não garante ordem de retorno sem `ORDER BY` — sem isso a
-  lista podia "embaralhar" entre uma abertura e outra.
-- **`buscarPorId` retorna nullable** (`MediaItem?` / `Review?`). O id pode ter sumido (filme excluído),
-  e a tela trata o `null` mostrando "não encontrado" em vez de quebrar.
-- **Nome em português**, igual ao resto do projeto (`buscarTodos`, `inserir`, `atualizar`, `deletar`).
-- **Uma query por necessidade real**, e não porsporta: só criamos filtro quando a tela precisava dele.
+> Optamos por **2 ViewModels** (um por Entity), o mínimo do enunciado, em vez de um por tela. Com isso a
+> tela de Detalhes é a única que usa dois ViewModels — e ela realmente precisa dos dois.
 
 ---
 
-## ⚡ Como o app conversa com o banco
+## 🧱 Por que o Repository existe
 
-O padrão usado em **todas** as telas é o mesmo (e é o que o enunciado pede):
+O Repository é a **única porta de entrada** para o banco. Antes ele não existia, e isso causava três
+problemas concretos:
+
+**1. O DAO vazava para cima.**
+No Trabalho 3 quem chamava `dao.inserir(...)` era o `MainViewModel`, e quem chamava o `MainViewModel`
+era a tela. O `@Dao` era detalhe de implementação do banco aparecendo em todo o caminho.
+*Com o Repository:* a tela não sabe que existe SQLite. Se um dia o dado viesse de uma **API**, só o
+`FilmesRepository` mudaria — `FilmesViewModel` e a `HomeScreen` continuariam **intactos**.
 
 ```kotlin
-// qualquer @Composable
-val scope = rememberCoroutineScope()
+class FilmesRepository(private val dao: FilmesDao) {
+    val filmes: Flow<List<MediaItem>> = dao.buscarTodos()
+    val minhaLista: Flow<List<MediaItem>> = dao.buscarDaMinhaLista()
 
-LaunchedEffect(Unit) {                 // busca os dados assim que a tela abre
-    scope.launch(Dispatchers.IO) {      // fora da thread principal
+    suspend fun buscarPorId(id: Int): MediaItem? = dao.buscarPorId(id)
+    suspend fun inserir(filme: MediaItem): Long = dao.inserir(filme)
+    suspend fun atualizar(filme: MediaItem) = dao.atualizar(filme)
+    suspend fun deletar(filme: MediaItem) = dao.deletar(filme)
+}
+```
+
+**2. As regras de banco estavam espalhadas.**
+Cada tela que precisasse de "os filmes que o usuário salvou" escrevia a própria query. Com o Repository,
+a pergunta é feita **uma vez** (`buscarDaMinhaLista()`) e o significado fica em um lugar só.
+
+**3. O seed não tinha casa.**
+Os dados de exemplo precisam inserir **filmes e avaliações juntos** (as avaliações referenciam o id dos
+filmes, e a chave estrangeada quebraria se a avaliação entrasse antes do filme). Com um Repository por
+Entity, isso não cabia em nenhum dos dois. Criamos então o **`SeedRepository`**, que é o dono do
+"popular o banco na primeira execução" — ele recebe os dois DAOs justamente para fazer isso de forma
+atômica, e usa um `Mutex` para nunca duplicar o seed.
+
+```kotlin
+class SeedRepository(private val filmesDao: FilmesDao, private val reviewsDao: ReviewsDao) {
+    private val mutex = Mutex()
+    private var semeado = false
+
+    suspend fun popularBancoSeVazio() = mutex.withLock {
+        if (semeado) return
+        if (filmesDao.buscarTodos().first().isEmpty()) {
+            filmesDeExemplo.forEach { filmesDao.inserir(it) }
+            reviewsDeExemplo.forEach { reviewsDao.inserir(it) }
+        }
+        semeado = true
+    }
+}
+```
+
+E o **`RepositoryProvider`** (ServiceLocator) entrega as instâncias para a navegação montar as Factories:
+
+```kotlin
+object RepositoryProvider {
+    fun filmesRepository(context: Context): FilmesRepository = ...
+    fun reviewsRepository(context: Context): ReviewsRepository = ...
+    fun seedRepository(context: Context): SeedRepository = ...
+}
+```
+
+> Escolhemos o **ServiceLocator** em vez de uma classe `Application` de propósito: é o mesmo resultado
+> sem precisar mexer no `AndroidManifest.xml` (o mesmo risco de runtime que evitamos com o `MainActivity`).
+
+---
+
+## 🌊 O DAO reativo com Flow
+
+Esta foi a mudança mais concreta do trabalho. No Trabalho 3 o `buscarTodos()` era `suspend` e devolvia
+uma `List` — então **cada tela tinha que buscar de novo** depois de cada escrita:
+
+```kotlin
+// ANTES (Trabalho 3) — buscar de novo na mão
+suspend fun inserirFilme(filme: MediaItem) {
+    dao.inserir(filme)
+    carregarFilmes()        // ← a tela podia ficar dessincronizada se esquecesse
+    carregarMinhaLista()
+}
+```
+
+Agora o DAO devolve um **`Flow`**, e o Room reemite sozinho sempre que a tabela muda:
+
+```kotlin
+// DEPOIS (Trabalho 4)
+@Query("SELECT * FROM filmes ORDER BY id")
+fun buscarTodos(): Flow<List<MediaItem>>      // ← não é mais suspend: o Flow já é assíncrono
+
+@Query("SELECT * FROM filmes WHERE naMinhaLista = 1 ORDER BY id")
+fun buscarDaMinhaLista(): Flow<List<MediaItem>>
+
+@Query("SELECT * FROM reviews WHERE filmeId = :filmeId ORDER BY id")
+fun buscarPorFilme(filmeId: Int): Flow<List<Review>>
+```
+
+O ViewModel só **observa**:
+
+```kotlin
+viewModelScope.launch {
+    combine(repository.filmes, repository.minhaLista) { filmes, minhaLista -> filmes to minhaLista }
+        .collect { (filmes, minhaLista) ->
+            _uiState.update { it.copy(filmes = filmes, minhaLista = minhaLista, carregando = false) }
+        }
+}
+```
+
+**O resultado na prática:** o botão "+ lista" muda de "- lista" para "+ lista" **sozinho**, o filme
+novo aparece na lista **sem recarregar a tela**, e o comentário enviado na tela "Avaliar" aparece
+sozinho no bloco de comentários da tela de Detalhes. Não existe mais nenhum `carregarX()` espalhado.
+
+> 💡 `buscarPorId` continuou `suspend` (é a busca de uma tela de detalhe, de uso único) — o enunciado só
+> exige `Flow` no "buscar todos", e é ele que resolve a reatividade das listas.
+
+---
+
+## 🧾 O UiState de cada tela
+
+Cada ViewModel tem **uma data class de estado** que agrupa **tudo** que as suas telas precisam para se
+desenhar — no lugar de várias `remember` soltas.
+
+### `FilmesUiState` (Home, Minha Lista, Detalhes, Perfil)
+
+```kotlin
+data class FilmesUiState(
+    // ---- listas ----
+    val filmes: List<MediaItem> = emptyList(),
+    val minhaLista: List<MediaItem> = emptyList(),
+    // ---- filme em foco (tela de Detalhes) ----
+    val filmeSelecionado: MediaItem? = null,
+    // ---- status ----
+    val carregando: Boolean = true,
+    val erro: String? = null,
+    // ---- formulário de adicionar (Home) ----
+    val mostrarFormulario: Boolean = false,
+    val titulo: String = "",
+    val ano: String = "",
+    val nota: String = "",
+    // ---- edição e exclusão (Detalhes) ----
+    val mostrarEdicao: Boolean = false,
+    val tituloEdicao: String = "",
+    val anoEdicao: String = "",
+    val notaEdicao: String = "",
+    val mostrarExclusao: Boolean = false
+)
+```
+
+### `ReviewsUiState` (Detalhes, Avaliar, Comentários, Comentário)
+
+```kotlin
+data class ReviewsUiState(
+    val reviews: List<Review> = emptyList(),
+    val reviewSelecionado: Review? = null,
+    val filmeId: Int = 0,
+    val tituloFilme: String = "",
+    val carregando: Boolean = true,
+    val erro: String? = null,
+    // ---- formulário de avaliação (Avaliar) ----
+    val nota: Int = 3,
+    val comentario: String = "",
+    val enviando: Boolean = false,
+    // ---- edição (Comentário) ----
+    val mostrarEdicao: Boolean = false,
+    val textoEdicao: String = "",
+    val notaEdicao: Int = 3
+)
+```
+
+**Por que esses campos**
+
+- **As listas** (`filmes`, `minhaLista`, `reviews`) — é o dado que a tela desenha. Vêm do `Flow` do banco.
+- **O item em foco** (`filmeSelecionado`, `reviewSelecionado`) — a tela de Detalhes e a de Comentário
+  mostram **um** item, e ele também está no `UiState` (é derivado do `Flow`, então nunca fica velho:
+  editar, salvar na lista ou excluir atualiza a tela sem "buscar de novo").
+- **`carregando` e `erro`** — os dois estados que toda tela precisa: enquanto o `Flow` não emitiu a
+  primeira vez, mostramos "Carregando do banco..."; se algo deu errado, mostramos a mensagem.
+- **O formulário** (`titulo`, `ano`, `nota`, `comentario`) — o texto que o usuário está digitando é
+  **estado da tela**, então mora no `UiState`, e não em `var remember` dentro do componente. É por isso
+  que o diálogo de "Adicionar filme" e o de "Editar filme" não perdem o que foi digitado.
+- **Os flags de diálogo** (`mostrarFormulario`, `mostrarEdicao`, `mostrarExclusao`) — decidir *se* o
+  diálogo está aberto é estado da tela, não estado do componente.
+
+> Um detalhe de projeto: como o estado do formulário mora no ViewModel, o `UiState` é **sobrescrito**
+> entre as telas que usam o mesmo ViewModel (por exemplo, o `mostrarEdicao` é do mesmo `FilmesUiState`
+> em Home e em Detalhes). Como cada tela tem a **sua própria instância** do ViewModel (o escopo é o
+> `NavBackStackEntry`), isso não vaza nada entre elas.
+
+### O padrão `_uiState` / `uiState`
+
+```kotlin
+private val _uiState = MutableStateFlow(FilmesUiState())   // privado: só o ViewModel altera
+val uiState: StateFlow<FilmesUiState> = _uiState.asStateFlow()   // público: só a tela lê
+```
+
+A tela **nunca** escreve no estado — ela só chama **ações**:
+
+```kotlin
+fun adicionarFilme() {
+    val estado = _uiState.value
+    if (estado.titulo.isBlank()) return
+    viewModelScope.launch {
         try {
-            mainViewModel.carregarFilmes()   // -> dao.buscarTodos()
+            repository.inserir(MediaItem(title = estado.titulo.trim(), ...))
+            _uiState.update { it.copy(mostrarFormulario = false, titulo = "", ano = "", nota = "") }
         } catch (e: Exception) {
-            Log.e("HomeScreen", "Erro ao carregar os filmes do banco", e)   // tratamento de erro
+            Log.e("FilmesViewModel", "Erro ao salvar o filme", e)
+            _uiState.update { it.copy(erro = "Nao foi possivel salvar o filme") }
         }
     }
 }
 ```
 
-E nas telas de detalhe, onde a tela precisa do valor devolvido:
+---
+
+## 🏭 ViewModelFactory: como o Repository chega no ViewModel
+
+O Android não sabe criar sozinho um `ViewModel` que recebe parâmetros no construtor — por isso cada
+ViewModel tem uma **Factory** que injeta o Repository na hora da criação:
 
 ```kotlin
-var filme by remember { mutableStateOf<MediaItem?>(null) }
+class FilmesViewModelFactory(
+    private val repository: FilmesRepository,
+    private val seedRepository: SeedRepository,
+    private val filmeId: Int? = null
+) : ViewModelProvider.Factory {
 
-LaunchedEffect(filmeId) {              // <- §3.3 do enunciado: busca pelo id que veio da navegação
-    scope.launch(Dispatchers.IO) {
-        try {
-            val f = mainViewModel.buscarFilmePorId(filmeId)   // -> dao.buscarPorId(id)
-            withContext(Dispatchers.Main) { filme = f }
-        } catch (e: Exception) {
-            Log.e("DetalhesScreen", "Erro ao buscar o filme $filmeId no banco", e)
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(FilmesViewModel::class.java)) {
+            return FilmesViewModel(repository, seedRepository, filmeId) as T
         }
+        throw IllegalArgumentException("ViewModel desconhecido: ${modelClass.name}")
     }
 }
 ```
 
-> Nenhuma chamada de DAO acontece na thread principal, e todas as operações estão dentro de
-> `try/catch` com `Log.e(...)`.
+E a tela/navegação obtém o ViewModel com ela:
+
+```kotlin
+composable(Rotas.DESCRICAO, arguments = listOf(navArgument("filmeId") { type = NavType.IntType })) { entry ->
+    val filmeId = entry.arguments?.getInt("filmeId") ?: 0
+
+    val factory = remember(filmesRepository, seedRepository, filmeId) {
+        FilmesViewModelFactory(filmesRepository, seedRepository, filmeId)
+    }
+
+    DetalhesScreen(
+        navController = navController,
+        filmesViewModel = viewModel(factory = factory),
+        reviewsViewModel = viewModel(factory = reviewsFactory)
+    )
+}
+```
+
+> 💡 O `filmeId` (e o `reviewId`) chegam ao ViewModel **pela Factory**, e não por um `rememberSaveable`
+> dentro da tela. Assim o ViewModel já nasce sabendo do que trata — e é ele que busca o item no banco.
 
 ---
 
-## ✅ O CRUD completo, tela por tela
+## 💥 O que quebrou durante a reorganização
 
-| Operação | Método do DAO | Onde o usuário faz isso |
+A reorganização **não foi só "mover arquivo"**. Estas são as coisas que realmente quebraram no caminho
+e como resolvemos:
+
+**1. O `buscarTodos()` deixou de ser `suspend` — e o seed parou de compilar.**
+O seed do Trabalho 3 era `if (dao.buscarTodos().isEmpty())`. Com o DAO devolvendo `Flow`, essa linha
+não compila mais (`isEmpty()` não existe em `Flow`). A solução foi `.first()`:
+`if (dao.buscarTodos().first().isEmpty())`.
+
+**2. O seed não cabia em nenhum Repository.**
+O seed insere **filmes e avaliações juntos** — as avaliações guardam o `filmeId` dos filmes, e a chave
+estrangeira (`onDelete = CASCADE`) faz o SQLite recusar uma avaliação cujo filme não existe ainda.
+Com "um Repository por Entity", nenhum dos dois tinha os dois DAOs. Criamos o **`SeedRepository`**,
+que existe justamente para isso: ele recebe os dois DAOs e popula o banco de forma atômica, protegido
+por `Mutex` (para duas telas abertas ao mesmo tempo não duplicarem o seed).
+
+**3. O `MainViewModel` inteiro sumiu — e com ele o `androidx.lifecycle.AndroidViewModel`.**
+Ele existia só porque precisava do `Application` para abrir o banco. Com o `RepositoryProvider`
+(ServiceLocator) quem abre o banco é o provider, e o ViewModel virou `ViewModel()` puro, como pede o
+enunciado. Todas as telas que pegavam o `mainViewModel` como parâmetro tiveram que ser reescritas.
+
+**4. O `id` do filme precisa chegar no ViewModel.**
+No Trabalho 3 a tela recebia o `filme: MediaItem` **inteiro** pela navegação, então ela já sabia tudo.
+No MVVM o ViewModel tem que **buscar** o item — e para isso precisa do `id`, que vem da rota
+(`descricao/{filmeId}`). A solução foi a Factory receber o id: `FilmesViewModelFactory(repository, seed, filmeId)`.
+
+**5. O botão "+ lista" não atualizava o texto.**
+Esse foi o mais chato. O `filmeSelecionado` era buscado uma vez só (`buscarPorId`), então depois de
+salvar/remover o filme da "Sua lista" o botão continuava mostrando "+ lista". A solução foi **derivar o
+item em foco do `Flow`**: em vez de buscá-lo uma vez, o ViewModel o obtém da lista que já está
+observando — assim ele acompanha o banco sozinho e o botão muda na hora.
+
+**6. Telas que dependiam do "estado do outro ViewModel".**
+A tela de Avaliar e a de Comentários precisam do **título** do filme, que mora na tabela `filmes`.
+Duas saídas: (a) as telas usarem os dois ViewModels; (b) o `ReviewsViewModel` consultar também o
+`FilmesRepository`. Escolhemos **(b)**, porque deixa a tela com **um** ViewModel só e o título dentro
+do `ReviewsUiState` (`tituloFilme`).
+
+---
+
+## ✅ Prova de que nada quebrou
+
+O enunciado é claro: *"O app precisa continuar fazendo exatamente o que já fazia no Trabalho 3"*.
+Então repetimos **toda** a bateria de testes do Trabalho 3 no emulador:
+
+| # | Teste | Resultado |
 |---|---|---|
-| **Inserir** | `filmesDao.inserir` | Home → botão **＋** na TopAppBar → diálogo *Adicionar filme* (título, ano, nota) → *Salvar* |
-| **Inserir** | `reviewsDao.inserir` | Detalhes → *Avaliar* → estrelas + comentário → **ENVIAR** |
-| **Atualizar** | `filmesDao.atualizar` | Detalhes → **✏️** → editar título/ano/nota → *Salvar* |
-| **Atualizar** | `filmesDao.atualizar` (flag) | Detalhes → *+ lista* / *− lista*; Minha Lista → **✕** |
-| **Atualizar** | `reviewsDao.atualizar` | Tela do Comentário → **✏️** → editar texto e nota → *Salvar* |
-| **Remover** | `reviewsDao.deletar` | Tela de Comentários → **🗑** no card; Tela do Comentário → **🗑** |
-| **Remover** | `filmesDao.deletar` | Detalhes → **🗑** → confirmação → *Excluir* |
-| **Buscar (lista)** | `filmesDao.buscarTodos` | Home, ao abrir a tela |
-| **Buscar (filtro)** | `filmesDao.buscarDaMinhaLista` | Home ("Sua lista") e tela *Minha Lista* |
-| **Buscar (por id)** | `filmesDao.buscarPorId` | **Tela de Detalhes** (§3.3) |
-| **Buscar (por id)** | `reviewsDao.buscarPorId` | Tela de Comentário Detalhado |
-| **Buscar (por campo)** | `reviewsDao.buscarPorFilme` | Tela de Comentários (comentários de um filme) |
+| 1 | App abre com os 4 filmes do seed | ✅ |
+| 2 | **Adicionar** filme (+) | ✅ salva no banco e **aparece sozinho** na "Sua lista" |
+| 3 | **Listar** (Home, Minha Lista, Comentários) | ✅ tudo vem do banco |
+| 4 | **Editar** filme (✏️) | ✅ título/ano/nota mudam e persistem |
+| 5 | **Editar** comentário (✏️) | ✅ texto e nota mudam (4 → 5 estrelas) |
+| 6 | **Avaliar** (estrelas + ENVIAR) | ✅ grava e **aparece sozinho** no bloco de comentários |
+| 7 | **Excluir** comentário (🗑) | ✅ some da lista |
+| 8 | **Excluir** filme (🗑 + confirmação) | ✅ some do app |
+| 9 | **Tirar da lista** (✕) | ✅ some da "Sua lista" e o total do Perfil cai de 4 para 3 |
+| 10 | Detalhes busca o item **pelo id** | ✅ |
+| 11 | **Persistência** (`force-stop` → reabrir) | ✅ título editado, comentário e lista continuam lá |
+| 12 | `assembleDebug` + `assembleRelease` + `testDebugUnitTest` | ✅ verdes, sem warnings |
 
-> ⚠️ Os diálogos (adicionar/editar) são **diálogos dentro das telas que já existiam** — o enunciado pede
-> que não criássemos telas novas, e um `AlertDialog` do Material 3 não é uma tela nova: é um componente
-> sobre a tela atual. Ele existe para que **todas** as operações de CRUD tenham um caminho real na interface
-> (e para a apresentação ao vivo).
+📸 **Prints do Trabalho 4** (o visual é **idêntico** ao do Trabalho 3 — a refatoração não mudou a interface):
 
-### 📸 Telas
+**Home — as seções e a "Sua lista" vindas do `uiState`**
 
-**Home — as seções e a "Sua lista" vêm do banco**
+<img width="420" src="docs/10-t4-home-ui-state.png" />
+
+**Detalhes — filme e comentários vindos do `uiState`**
+
+<img width="420" src="docs/11-t4-detalhes-ui-state.png" />
+
+**Comentários — lista do `uiState`, com o botão de excluir**
+
+<img width="420" src="docs/12-t4-comentarios-ui-state.png" />
+
+**Minha Lista — grid do `uiState`, com ✕ para tirar da lista**
+
+<img width="420" src="docs/13-t4-minha-lista-ui-state.png" />
+
+**Perfil — a estatística vem do `uiState`**
+
+<img width="420" src="docs/14-t4-perfil-ui-state.png" />
+
+> 🎥 **Vídeo:** gravar um vídeo curto (1–2 min) mostrando o app funcionando **igual** ao Trabalho 3
+> (adicionar, editar, avaliar, excluir e o teste de fechar/reabrir) e, de quebra, a **vantagem nova**:
+> a lista atualiza sozinha, sem "buscar de novo".
+
+---
+
+## 👥 Dificuldades de cada integrante
+
+> *Espaço para o trio preencher com as histórias reais de cada um — este é o item que só o grupo
+> consegue responder com as palavras de vocês.*
+
+- **Integrante 1:** *(preencher)*
+- **Integrante 2:** *(preencher)*
+- **Integrante 3:** *(preencher)*
+
+---
+
+## 📋 Checklist de entrega
+
+- [x] Código dividido em **4 pacotes**: `ui`, `data` (`data.local`), `data.repository`, `viewmodel`
+- [x] **Repository por Entity** (`FilmesRepository`, `ReviewsRepository`) — e **só eles** falam com o `@Dao`
+- [x] O `buscarTodos()` do DAO retorna **`Flow<List<...>>`** (e também o `buscarDaMinhaLista()` e o `buscarPorFilme()`)
+- [x] **2 ViewModels**, cada um com seu próprio `UiState` (`FilmesUiState` e `ReviewsUiState`)
+- [x] Cada ViewModel usa o padrão **`_uiState` privado + `uiState` público** (`StateFlow`)
+- [x] **ViewModelFactory** (`FilmesViewModelFactory`, `ReviewsViewModelFactory`) injetando o Repository
+- [x] As telas **não têm mais `dao`, `CoroutineScope` ou `Dispatchers.IO`** — só leem `uiState` e chamam métodos do ViewModel
+- [x] Testado: o app continua fazendo tudo que fazia no Trabalho 3 (adicionar, listar, atualizar, remover, persistir)
+- [ ] Gravar o vídeo do app funcionando e anexar ao README
+- [ ] Preencher a seção "Dificuldades de cada integrante"
+- [ ] Publicar as mudanças no **mesmo repositório** do Trabalho 3
+
+---
+
+## 📚 Histórico das entregas anteriores
+
+<details>
+<summary><b>Trabalho 3 — persistência com Room (clique para abrir)</b></summary>
+
+No **Trabalho 2** tínhamos navegação real com `NavHost` e listas que aceitavam adicionar e remover
+itens, mas tudo guardado **só na memória** (`MutableStateFlow`) — fechava o app e os dados sumiam.
+No **Trabalho 3** criamos a camada de dados com Room: 2 `@Entity` (`filmes`, `reviews`), 2 `@Dao`,
+`AppDatabase` em Singleton, CRUD completo e persistente, e a Tela de Detalhes passou a buscar o filme
+**no banco pelo id** (em vez de receber o objeto pronto pela navegação).
+
+**Prints do Trabalho 3:**
 
 <img width="420" src="docs/01-home-lista-do-banco.png" />
-
-**Adicionar filme (INSERT)**
-
 <img width="420" src="docs/02-adicionar-filme.png" />
-
-**Detalhes — o filme foi buscado no banco pelo id que veio da navegação**
-
 <img width="420" src="docs/03-detalhes-buscado-por-id.png" />
-
-**Avaliar — o formulário grava a avaliação no banco**
-
 <img width="420" src="docs/04-avaliar-grava-no-banco.png" />
-
-**Comentários — lista vinda de `buscarPorFilme(filmeId)`, com botão de excluir**
-
 <img width="420" src="docs/05-comentarios-do-banco.png" />
-
-**Minha Lista — grid do banco, com ✕ para tirar o filme da lista**
-
 <img width="420" src="docs/06-minha-lista.png" />
 
-**Perfil — a estatística vem do banco (`minhaLista.size`)**
+</details>
 
-<img width="420" src="docs/07-perfil-estatisticas-do-banco.png" />
+<details>
+<summary><b>Trabalho 2 — telas, navegação e estado reativo (clique para abrir)</b></summary>
 
----
+No **Trabalho 1** tínhamos 3 telas estáticas (`HomeScreen`, `DetalhesFilme`, `Review`), navegação
+"de mentirinha" e dados fixos. No **Trabalho 2** refatoramos para:
 
-## 😤 A dificuldade de migrar de `mutableStateListOf` para Room
+- **4 telas novas**: Lista de Comentários, Comentário Detalhado, Perfil e Minha Lista (grid).
+- **Navegação global** com `NavHost`, `TopBar` e `BottomBar` persistentes.
+- **`MainViewModel` compartilhado** entre as telas, com `StateFlow`/`mutableStateOf`.
+- **Padronização visual** de cards, botões, cores e tipografia.
 
-O que **quebrou** no caminho — e como resolvemos:
+> 🖼️ Lista de Comentários
+> <img width="420" alt="Captura de tela 10-08" src="https://github.com/user-attachments/assets/42678a19-f675-4514-a074-747f609c1ad2" />
+> 🖼️ Comentário Detalhado
+> <img width="420" alt="Captura de tela 2026-10-08 204630" src="https://github.com/user-attachments/assets/75b4e29b-e5e0-459b-9128-f34535c9ffe6" />
+> 🖼️ Perfil
+> <img width="420" alt="image" src="https://github.com/user-attachments/assets/daafd006-0cb6-4def-b898-8e52e8f7a861" />
+> 🖼️ Minha Lista
+> <img width="420" alt="image" src="https://github.com/user-attachments/assets/05d0c599-6f47-41f8-876f-3aa7be44e2df" />
 
-**1. O `id` deixou de ser manual e os dados "de exemplo" pararam de bater.**
-No Trabalho 2, o id era escrito à mão: `MediaItem(1, "Jornada pro Oeste", ...)`, e as avaliações guardavam
-`filmeId = 1` e `filmeId = 2` apontando para esses ids fixos. Quando o `id` passou a ser gerado pelo
-banco (`autoGenerate = true`), nada garantia mais que o primeiro filme inserido tivesse id 1 — e as
-avaliações do exemplo passaram a apontar para filmes que não existiam.
-*Como resolvemos:* o seed (`DadosDeExemplo.kt`) insere os filmes **com `id = 0`**, e o banco gera 1, 2, 3, 4
-na ordem da inserção. Os `filmeId` do seed continuam válidos, e o seed só roda quando a tabela está vazia
-(`if (filmesDao.buscarTodos().isEmpty())`), então nunca duplica.
-
-**2. `StateFlow` e banco:dá para ter os dois?**
-A primeira tentativa era deixar a lista no `StateFlow` e só "espelhar" no banco. Isso gerava dois estados
-podendo divergir (a tela mostrava uma coisa e o banco outra).
-*Como resolvemos:* o `StateFlow` virou **derivado** do banco. Cada escrita faz `dao.inserir/atualizar/deletar`
-e **recarrega** o fluxo a partir do DAO. Assim existe uma única fonte da verdade — o banco — e o `StateFlow`
-é só a ponte para a reatividade do Compose.
-
-**3. A navegação levava o objeto inteiro.**
-A tela de Detalhes recebia `filme: MediaItem` pronto, o que impedia a tela de buscar o dado fresco no banco
-(o enunciado pede exatamente isso na §3.3).
-*Como resolvemos:* as rotas passaram a ter argumento (`descricao/{filmeId}`) e a tela busca por id.
-De brinde, a navegação ficou menor e a tela sobrevive ao *process death* do Android.
-
-**4. `MutableStateListOf` com ids fixos não tinha "@Update" nem "@Delete" de verdade.**
-Remover um item da lista no Trabalho 2 era só tirar da coleção. Com o banco, "tirar da Minha Lista" é um
-`@Update` (mudar a flag) e "remover o filme" é um `@Delete` — são ações diferentes, e separ-las deixou a
-interface mais honesta.
-
-**5. A tela de Comentário Detalhado também recebia o objeto pronto.**
-Mesma solução: rota `comentario_detalhes/{reviewId}` + `dao.buscarPorId(reviewId)`.
-
-**6. Detalhe chato: `Order` do SQLite.**
-Sem `ORDER BY id` a lista de comentários podia aparecer em ordens diferentes entre aberturas. Resolvido
-adicionando `ORDER BY id` em todas as leituras.
-
----
-
-## 🧪 Prova de persistência (teste de aceitação)
-
-O roteiro da apresentação ao vivo:
-
-1. Abrir o app → Home mostra "Recomendações"/"Novidades" vindas do banco.
-2. Tocar no **＋** → adicionar um filme novo (*Meu Filme Teste*, 2026, 9.0) → ele aparece na "Sua lista".
-3. Entrar no filme → **✏️** → editar o título → *Salvar* → o título muda na lista.
-4. *Avaliar* → 4 estrelas + comentário → **ENVIAR** → o comentário aparece em "Comentários".
-5. **Fechar o app completamente** e reabrir:
-   ```bash
-   adb shell am force-stop com.example.mystreaming     # encerra o app
-   adb shell monkey -p com.example.mystreaming 1       # reabre
-   ```
-6. O filme adicionado, o **título editado** e o **comentário salvo continuam lá**. ✅
-7. Remover o filme (**🗑**) → ele some da lista de verdade.
-
-**Prints do resultado (após reabrir o app):** o filme continua na "Sua lista" (`docs/01`), a tela de
-Detalhes mostra o título editado e o comentário salvo (`docs/03`), e a tela de Comentários mostra a
-avaliação vinda do banco (`docs/05`).
+</details>
 
 ---
 
 <div align="center">
 
-**myStreaming — Trabalho 3 · Persistência com Room**
+**myStreaming — Trabalho 4 · MVVM (Repository + UiState + ViewModelFactory)**
 
 </div>

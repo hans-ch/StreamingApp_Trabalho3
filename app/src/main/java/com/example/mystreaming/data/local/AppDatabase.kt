@@ -1,4 +1,4 @@
-package com.example.mystreaming.data
+package com.example.mystreaming.data.local
 
 import android.content.Context
 import androidx.room3.Database
