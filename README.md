@@ -12,7 +12,7 @@
 2. [O que é este trabalho (em 1 minuto)](#-o-que-é-este-trabalho-em-1-minuto)
 3. [Como estava no Trabalho 3 e o que mudou](#-como-estava-no-trabalho-3-e-o-que-mudou)
 4. [Como dividimos os pacotes](#-como-dividimos-os-pacotes)
-5. [Por que o Repository existe](#-por que-o-repository-existe)
+5. [Por que o Repository existe](#-por que-o-repository-existe).
 6. [O DAO reativo com Flow](#-o-dao-reativo-com-flow)
 7. [O UiState de cada tela](#-o-uistate-de-cada-tela)
 8. [ViewModelFactory: como o Repository chega no ViewModel](#-viewmodelfactory-como-o-repository-chega-no-viewmodel)
@@ -571,17 +571,6 @@ Então repetimos **toda** a bateria de testes do Trabalho 3 no emulador:
 > 🎥 **Vídeo:** gravar um vídeo curto (1–2 min) mostrando o app funcionando **igual** ao Trabalho 3
 > (adicionar, editar, avaliar, excluir e o teste de fechar/reabrir) e, de quebra, a **vantagem nova**:
 > a lista atualiza sozinha, sem "buscar de novo".
-
----
-
-## 👥 Dificuldades de cada integrante
-
-> *Espaço para o trio preencher com as histórias reais de cada um — este é o item que só o grupo
-> consegue responder com as palavras de vocês.*
-
-- **Integrante 1:** *(preencher)*
-- **Integrante 2:** *(preencher)*
-- **Integrante 3:** *(preencher)*
 
 ---
 
