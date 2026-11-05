@@ -585,22 +585,6 @@ Então repetimos **toda** a bateria de testes do Trabalho 3 no emulador:
 
 ---
 
-## 📋 Checklist de entrega
-
-- [x] Código dividido em **4 pacotes**: `ui`, `data` (`data.local`), `data.repository`, `viewmodel`
-- [x] **Repository por Entity** (`FilmesRepository`, `ReviewsRepository`) — e **só eles** falam com o `@Dao`
-- [x] O `buscarTodos()` do DAO retorna **`Flow<List<...>>`** (e também o `buscarDaMinhaLista()` e o `buscarPorFilme()`)
-- [x] **2 ViewModels**, cada um com seu próprio `UiState` (`FilmesUiState` e `ReviewsUiState`)
-- [x] Cada ViewModel usa o padrão **`_uiState` privado + `uiState` público** (`StateFlow`)
-- [x] **ViewModelFactory** (`FilmesViewModelFactory`, `ReviewsViewModelFactory`) injetando o Repository
-- [x] As telas **não têm mais `dao`, `CoroutineScope` ou `Dispatchers.IO`** — só leem `uiState` e chamam métodos do ViewModel
-- [x] Testado: o app continua fazendo tudo que fazia no Trabalho 3 (adicionar, listar, atualizar, remover, persistir)
-- [ ] Gravar o vídeo do app funcionando e anexar ao README
-- [ ] Preencher a seção "Dificuldades de cada integrante"
-- [ ] Publicar as mudanças no **mesmo repositório** do Trabalho 3
-
----
-
 ## 📚 Histórico das entregas anteriores
 
 <details>
