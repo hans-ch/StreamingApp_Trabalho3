@@ -1,4 +1,4 @@
-package com.example.mystreaming.data
+package com.example.mystreaming.data.local
 
 /**
  * Dados de exemplo do Trabalho 2, agora usados apenas como seed do banco.
