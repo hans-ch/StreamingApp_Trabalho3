@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+PLAN.md
+/app/src/main/java/com/example/mystreaming/viewmodel/*
